@@ -69,16 +69,26 @@ def main():
                     from windows_compat import is_windows_11
                     if is_windows_11():
                         # Windows 11 can handle more features
-                        app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
-                        app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+                        try:
+                            app.setAttribute(Qt.ApplicationAttribute.AA_DisableWindowContextHelpButton, True)
+                            app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+                        except AttributeError:
+                            app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
+                            app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
                         app.setQuitOnLastWindowClosed(True)
                     else:
                         # Windows 10 - more conservative
-                        app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
+                        try:
+                            app.setAttribute(Qt.ApplicationAttribute.AA_DisableWindowContextHelpButton, True)
+                        except AttributeError:
+                            app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
                         app.setQuitOnLastWindowClosed(True)
                 except ImportError:
                     # Fallback for all Windows versions
-                    app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
+                    try:
+                        app.setAttribute(Qt.ApplicationAttribute.AA_DisableWindowContextHelpButton, True)
+                    except AttributeError:
+                        app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
                     app.setQuitOnLastWindowClosed(True)
         except Exception as e:
             logger.error(f"Error creating QApplication: {e}")
