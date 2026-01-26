@@ -1,0 +1,125 @@
+# Commands & Reusable Prompts - LocalMind
+
+## Development Commands
+
+### Setup & Installation
+```bash
+# Minimal installation
+pip install PySide6 llama-cpp-python
+
+# Full installation with document support
+pip install -r requirements.txt
+
+# Run application
+python main.py
+```
+
+### Project Structure Commands
+```bash
+# View project structure
+tree -I '__pycache__|*.pyc|venv|.venv'
+
+# Check memory usage
+du -sh memory/
+
+# View logs
+tail -f logs/localmind.log
+```
+
+## Privacy-First Use Cases
+
+### Student Research & Academic Work
+```bash
+# Secure thesis research
+python main.py
+# Import: Research papers, academic sources, literature reviews
+# Benefit: No data sent to cloud services, complete offline operation
+# Use case: "Analyze these 50 research papers for my thesis on AI ethics"
+```
+
+### Legal Practice & Client Confidentiality
+```bash
+# Attorney-client privileged materials
+python main.py
+# Import: Case files, legal precedents, contracts, depositions
+# Benefit: Maintains attorney-client privilege, no cloud exposure
+# Use case: "Review these discovery documents for relevant precedents"
+```
+
+### Academic Research & Data Analysis
+```bash
+# Confidential research data
+python main.py
+# Import: Interview transcripts, survey data, lab notes, grant applications
+# Benefit: Protects research subjects, maintains data integrity
+# Use case: "Analyze these interview transcripts for common themes"
+```
+
+### Investigative Journalism & Source Protection
+```bash
+# Sensitive investigation materials
+python main.py
+# Import: Confidential documents, interview notes, leaked materials
+# Benefit: Protects sources, maintains journalistic integrity
+# Use case: "Cross-reference these leaked documents with public records"
+```
+
+## Privacy-Focused Prompt Templates
+
+### Confidential Document Analysis
+```
+You are analyzing confidential documents that must remain private. 
+Provide insights based on the compressed knowledge without exposing 
+sensitive details. Focus on patterns, themes, and actionable insights 
+while maintaining confidentiality.
+
+DOCUMENT CONTEXT: {compressed_memories}
+QUERY: {user_question}
+```
+
+### Legal Document Review
+```
+You are assisting with legal document analysis. All information is 
+attorney-client privileged. Provide legal insights based on compressed 
+knowledge while maintaining professional standards and confidentiality.
+
+LEGAL CONTEXT: {compressed_memories}
+ANALYSIS REQUEST: {user_question}
+```
+
+### Research Data Analysis
+```
+You are analyzing research data that may contain sensitive information.
+Provide analytical insights based on compressed knowledge while 
+protecting participant privacy and research integrity.
+
+RESEARCH CONTEXT: {compressed_memories}
+RESEARCH QUESTION: {user_question}
+```
+
+### Secure Chat Profiles
+```
+# Privacy-Conscious Profile (temp 0.20)
+Extremely careful with sensitive information. Focused, precise responses.
+
+# Legal Professional Profile (temp 0.25)  
+Formal, professional tone suitable for legal work. Cite sources carefully.
+
+# Research Assistant Profile (temp 0.35)
+Academic tone, methodical analysis, protect confidential information.
+
+# Journalist Profile (temp 0.40)
+Investigative approach, source protection, fact-checking focus.
+```
+
+## Memory Management Commands
+```python
+# Check memory size
+memory_compressor.get_memory_size_kb()
+
+# Clean old memories
+memory_compressor.cleanup_old_memories()
+
+# Forget specific document
+memory_compressor.forget_document(doc_id)
+```

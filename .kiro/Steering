@@ -1,0 +1,79 @@
+# Steering - LocalMind Direction & Vision
+
+## Project Vision
+LocalMind is a **privacy-first AI chat application** that revolutionizes document interaction through compression-based learning. Designed for privacy-conscious professionals who need AI assistance without compromising sensitive data.
+
+## Core Mission
+**"AI for those who can't afford to leak data"**
+
+LocalMind serves professionals handling sensitive information who require:
+- **Complete data privacy** - Nothing leaves their machine
+- **Offline AI capabilities** - No internet dependency
+- **Professional-grade security** - Suitable for confidential work
+- **Simple, reliable operation** - Focus on work, not technology
+
+## Target Audience
+
+### Primary Users
+- **Students** - Research papers, thesis work, academic materials
+- **Lawyers** - Case files, legal documents, client information
+- **Researchers** - Literature review, interview transcripts, lab notes
+- **Journalists** - Source protection, investigation materials, confidential documents
+
+### User Characteristics
+- **Privacy-conscious** - Cannot risk data exposure
+- **Professional** - Handle sensitive, confidential information
+- **Security-aware** - Understand data privacy implications
+- **Productivity-focused** - Need AI assistance for complex document analysis
+
+## Key Differentiators
+- **Zero data leakage** - Everything processed locally
+- **No cloud dependency** - Fully offline operation
+- **Compression over retrieval** - Revolutionary memory-based approach
+- **Professional security** - Suitable for attorney-client privilege, HIPAA, confidential research
+- **Simple deployment** - Minimal dependencies, easy installation
+
+## Use Case Scenarios
+
+### Student Research
+- **Literature Review** - Compress academic papers for thesis research
+- **Study Materials** - Textbooks, lecture notes, exam preparation
+- **Citation Management** - Track sources without cloud storage
+- **Offline Study** - Work in libraries, dorms without reliable internet
+
+### Legal Practice
+- **Case Analysis** - Legal documents, precedents, contracts
+- **Client Confidentiality** - Attorney-client privileged materials
+- **Discovery Review** - Depositions, witness statements, evidence
+- **Legal Research** - Statutes, regulations, case law analysis
+
+### Academic Research
+- **Data Analysis** - Interview transcripts, survey responses
+- **Literature Synthesis** - Research papers, grant applications
+- **Lab Documentation** - Experimental notes, research protocols
+- **Collaboration** - Share insights without sharing raw data
+
+### Investigative Journalism
+- **Source Protection** - Confidential interviews, leaked documents
+- **Investigation Materials** - Background research, fact-checking
+- **Story Development** - Article drafts, research notes
+- **Whistleblower Safety** - Secure handling of sensitive materials
+
+## Technical Direction
+- **Local-first architecture** - No external dependencies
+- **Memory-based learning** - CLaRa-inspired compression system
+- **Desktop application** - Native performance with PySide6
+- **Model flexibility** - Works with any local GGUF model
+- **Bounded resources** - Predictable 500KB memory usage
+
+## Success Metrics
+- **Privacy guarantee** - Zero external network calls during operation
+- **Compression efficiency** - ~50KB per document vs ~10MB for RAG
+- **User adoption** - Privacy-conscious professionals choosing LocalMind
+- **Security validation** - Audit-ready for professional environments
+- **Offline capability** - Full functionality without internet
+
+## Market Position
+**"The only AI assistant you can trust with confidential information"**
+
+LocalMind positions itself as the privacy-first alternative to cloud-based AI tools, specifically designed for professionals who cannot compromise on data security.

@@ -1,0 +1,7 @@
+# Core dependencies (required)
+PySide6>=6.5.0
+llama-cpp-python>=0.2.0
+
+# Document reading (required for importing documents)
+PyPDF2>=3.0.0
+python-docx>=0.8.11

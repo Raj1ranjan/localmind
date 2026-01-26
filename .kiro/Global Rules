@@ -1,0 +1,48 @@
+# Global Rules - LocalMind Development
+
+## Core Philosophy
+- **Privacy-first design** - "AI for those who can't afford to leak data"
+- **Local-only processing** - No data leaves the user's machine
+- **Professional security** - Suitable for confidential, sensitive information
+- **Documents as teachers** - Compression over retrieval paradigm
+
+## Privacy & Security Principles
+- **Zero external connections** - No cloud dependencies during operation
+- **Data encryption** - Secure storage of compressed memories
+- **Audit readiness** - Suitable for legal, medical, research compliance
+- **Offline capability** - Full functionality without internet access
+- **Minimal attack surface** - Reduced dependencies and complexity
+
+## Target User Considerations
+- **Students** - Academic research, thesis work, study materials
+- **Lawyers** - Case files, legal documents, client confidentiality
+- **Researchers** - Literature review, interview transcripts, lab notes
+- **Journalists** - Source protection, investigation materials
+
+## Architecture Principles
+- **Bounded memory** - 500KB limit with auto-cleanup for predictability
+- **Clean separation** - Compressor, Manager, UI layers with proper isolation
+- **Thread safety** - Background operations don't block UI or compromise security
+- **Graceful degradation** - Never crash, comprehensive logging for debugging
+- **Resource cleanup** - Proper disposal to prevent data leakage
+
+## Code Standards
+- **Security-first** - Validate all inputs, sanitize file operations
+- **Error handling** - Try/catch with logging, never expose sensitive data
+- **Type hints** - Use dataclasses and typing annotations for clarity
+- **Documentation** - Clear docstrings explaining security implications
+- **Performance** - Bounded operations, predictable resource usage
+
+## UI/UX Guidelines
+- **Privacy indicators** - Clear visual confirmation of local-only operation
+- **Simple workflow** - Load model → Import docs → Chat (minimize complexity)
+- **No document selection** - All memories always available for convenience
+- **Professional design** - Dark theme, clean interface suitable for work environments
+- **Accessibility** - Clear labels and keyboard navigation for all users
+
+## Security Requirements
+- **No telemetry** - No usage tracking or analytics
+- **Local storage only** - All data remains on user's machine
+- **Secure deletion** - Proper cleanup when documents are forgotten
+- **Memory protection** - Clear sensitive data from RAM when possible
+- **Audit logging** - Track document access for compliance needs

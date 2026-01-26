@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+
+# Runtime data
+logs/
+chats/
+memory/
+
+# Build outputs
+dist/
+build/
+*.AppImage
+*.exe
+
+# Models
+llm/
+models/
+*.gguf
+*.bin
+
+# OS
+.DS_Store
