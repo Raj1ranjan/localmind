@@ -28,11 +28,18 @@ class CompressedMemory:
 class MemoryCompressor:
     """Compresses documents into bounded long-term memory"""
     
-    def __init__(self, memory_dir: str = "memory", max_memory_kb: int = 500):
+    def __init__(self, memory_dir: str = "memory", max_memory_kb: int = 2000):
         self.memory_dir = Path(memory_dir)
         self.memory_dir.mkdir(exist_ok=True)
         self.memory_file = self.memory_dir / "compressed_memory.json"
-        self.max_memory_kb = max_memory_kb
+        
+        # Windows-compatible memory limits
+        import platform
+        if platform.system() == "Windows":
+            self.max_memory_kb = min(max_memory_kb, 1000)  # Lower limit for Windows
+        else:
+            self.max_memory_kb = max_memory_kb  # Full limit for Linux/Mac
+            
         self.memories: Dict[str, CompressedMemory] = {}
         self._load_memories()
     
@@ -61,14 +68,22 @@ class MemoryCompressor:
         """Ensure memory stays within bounds"""
         current_size = self.memory_file.stat().st_size / 1024 if self.memory_file.exists() else 0
         
+        logger.info(f"Memory check: {current_size:.1f}KB / {self.max_memory_kb}KB limit")
+        
         if current_size > self.max_memory_kb:
-            # Remove oldest memories until under limit
+            # Remove oldest memories until under 90% of limit (more conservative)
             sorted_ids = sorted(self.memories.keys())
-            while current_size > self.max_memory_kb * 0.8 and sorted_ids:
+            target_size = self.max_memory_kb * 0.9
+            
+            logger.warning(f"Memory limit exceeded, cleaning up to {target_size:.1f}KB")
+            
+            while current_size > target_size and sorted_ids:
                 oldest = sorted_ids.pop(0)
                 del self.memories[oldest]
                 logger.info(f"Removed memory {oldest} to stay within bounds")
-            self._save_memories()
+                # Recalculate size after removal
+                self._save_memories()
+                current_size = self.memory_file.stat().st_size / 1024 if self.memory_file.exists() else 0
     
     def compress_document(self, doc_id: str, doc_name: str, text: str, llm_handler, progress_callback=None) -> CompressedMemory:
         """CLaRa-inspired compression"""

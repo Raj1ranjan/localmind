@@ -1,19 +1,46 @@
 @echo off
-REM Windows startup script for LocalMind
-REM Fixes common Windows issues before launching
+REM LocalMind Windows startup script with enhanced crash prevention
 
-echo Starting LocalMind...
+echo Starting LocalMind for Windows...
 
-REM Fix corrupted chat files first
-echo Checking for corrupted chat files...
-python fix_crashes.py
+REM Check for virtual environment
+if not exist ".venv" (
+    echo Creating virtual environment...
+    python -m venv .venv
+)
 
-REM Set environment variables for better Windows compatibility
+REM Activate virtual environment
+if exist ".venv\Scripts\activate.bat" (
+    call .venv\Scripts\activate.bat
+    echo Virtual environment activated
+) else (
+    echo Warning: Using system Python
+)
+
+REM Install Windows-compatible dependencies
+echo Installing Windows-compatible dependencies...
+pip uninstall -y llama-cpp-python 2>nul
+pip install llama-cpp-python --force-reinstall --no-cache-dir
+pip install -r requirements.txt
+
+REM Set Windows-specific environment variables
 set PYTHONIOENCODING=utf-8
 set PYTHONUNBUFFERED=1
 
-REM Launch LocalMind
+REM Fix any corrupted files
+if exist fix_crashes.py (
+    echo Checking for corrupted files...
+    python fix_crashes.py
+)
+
+REM Launch LocalMind with error handling
 echo Launching LocalMind...
 python main.py
 
-pause
+REM Keep window open if there's an error
+if errorlevel 1 (
+    echo.
+    echo Application encountered an error. Check the logs folder for details.
+    echo Press any key to exit...
+    pause >nul
+)

@@ -8,11 +8,24 @@ logger = logging.getLogger("localmind.llm")
 logger.setLevel(logging.INFO)
 
 class LlamaHandler:
-    def __init__(self, model_path, n_ctx=2048, n_threads=None):
+    def __init__(self, model_path, n_ctx=8192, n_threads=None):
         self.model_path = model_path
-        # Reduce context window for Windows compatibility
-        self.n_ctx = min(n_ctx, 4096)  # Cap at 4096 to avoid memory issues
-        self.n_threads = n_threads or max(1, os.cpu_count() // 2)
+        
+        # Use Windows-safe configuration
+        try:
+            from windows_compat import get_windows_safe_config, get_safe_thread_count
+            config = get_windows_safe_config()
+            self.n_ctx = min(n_ctx, config['n_ctx'])
+            self.n_threads = n_threads or get_safe_thread_count()
+        except ImportError:
+            # Fallback to platform detection
+            import platform
+            if platform.system() == "Windows":
+                self.n_ctx = min(n_ctx, 2048)
+                self.n_threads = n_threads or max(1, os.cpu_count() // 4)
+            else:
+                self.n_ctx = min(n_ctx, 8192)
+                self.n_threads = n_threads or max(1, os.cpu_count() // 2)
         self.llm = None
         self.generation_lock = QMutex()
         self.is_generating = False
@@ -26,13 +39,34 @@ class LlamaHandler:
             if self.llm:
                 del self.llm
                 self.llm = None
+            
+            # Windows-specific model loading with error handling
+            import platform
+            kwargs = {
+                'model_path': self.model_path,
+                'n_ctx': self.n_ctx,
+                'n_threads': self.n_threads,
+                'verbose': False
+            }
+            
+            # Windows-safe model loading with compatibility settings
+            try:
+                from windows_compat import get_windows_safe_config
+                config = get_windows_safe_config()
+                kwargs.update({
+                    'use_mlock': config['use_mlock'],
+                    'n_gpu_layers': config['n_gpu_layers'],
+                })
+            except ImportError:
+                # Fallback to platform detection
+                import platform
+                if platform.system() == "Windows":
+                    kwargs.update({
+                        'use_mlock': False,
+                        'n_gpu_layers': 0,
+                    })
                 
-            self.llm = Llama(
-                model_path=self.model_path,
-                n_ctx=self.n_ctx,
-                n_threads=self.n_threads,
-                verbose=False
-            )
+            self.llm = Llama(**kwargs)
             return True
         except Exception as e:
             logger.error(f"Error loading model: {e}")
