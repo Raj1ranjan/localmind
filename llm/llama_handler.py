@@ -10,8 +10,9 @@ logger.setLevel(logging.INFO)
 class LlamaHandler:
     def __init__(self, model_path, n_ctx=2048, n_threads=None):
         self.model_path = model_path
-        self.n_ctx = n_ctx
-        self.n_threads = n_threads or os.cpu_count() // 2
+        # Reduce context window for Windows compatibility
+        self.n_ctx = min(n_ctx, 4096)  # Cap at 4096 to avoid memory issues
+        self.n_threads = n_threads or max(1, os.cpu_count() // 2)
         self.llm = None
         self.generation_lock = QMutex()
         self.is_generating = False
@@ -168,18 +169,16 @@ class LlamaWorker(QThread):
         self.should_stop = True
         self.requestInterruption()
         
-        # Wait for generation to finish naturally
+        # Interrupt model generation immediately
+        if self.llama_handler and self.llama_handler.llm:
+            try:
+                self.llama_handler.interrupt()
+            except Exception as e:
+                logger.warning(f"Error interrupting model: {e}")
+        
+        # Wait for thread to finish
         if self._running:
-            self.wait(3000)  # Wait up to 3 seconds
-            
-        # Only interrupt if still running
-        if self.isRunning():
-            if self.llama_handler and self.llama_handler.llm:
-                try:
-                    self.llama_handler.interrupt()
-                except Exception as e:
-                    logger.warning(f"Error interrupting model: {e}")
-            self.wait(2000)  # Give it 2 more seconds
+            self.wait(1000)  # Wait up to 1 second only
         
     def run(self):
         self._running = True

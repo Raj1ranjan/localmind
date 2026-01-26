@@ -1370,20 +1370,35 @@ class MainWindow(QMainWindow):
         if chat_id == self.current_chat_id:
             chat_data["html_content"] = self.chat_display.toHtml()
         
-        # Save to JSON file
+        # Save to JSON file with atomic write
         file_path = os.path.join(self.chats_dir, f"{chat_id}.json")
+        temp_path = file_path + ".tmp"
+        
         # Create a copy without the is_generating flag for saving
         save_data = {k: v for k, v in chat_data.items() if k != "is_generating"}
         
         try:
-            with open(file_path, 'w', encoding='utf-8') as f:
+            # Write to temporary file first
+            with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump(save_data, f, indent=2, ensure_ascii=False)
+            
+            # Atomic rename (Windows-safe)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            os.rename(temp_path, file_path)
+            
         except PermissionError:
             logger.error(f"Permission denied saving chat {chat_id}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
         except OSError as e:
             logger.error(f"OS error saving chat {chat_id}: {e}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
         except Exception as e:
             logger.error(f"Unexpected error saving chat {chat_id}: {e}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
             
     def load_existing_chats(self):
         if not os.path.exists(self.chats_dir):
@@ -1394,26 +1409,36 @@ class MainWindow(QMainWindow):
                 file_path = os.path.join(self.chats_dir, filename)
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
-                        chat_data = json.load(f)
+                        content = f.read().strip()
+                    
+                    # Skip empty files
+                    if not content:
+                        logger.warning(f"Skipping empty chat file {filename}")
+                        continue
                         
-                        # Validate required fields
-                        required_fields = ["id", "name", "html_content", "created"]
-                        if not all(field in chat_data for field in required_fields):
-                            logger.warning(f"Skipping invalid chat file {filename}: missing required fields")
-                            continue
+                    chat_data = json.loads(content)
                         
-                        chat_id = chat_data["id"]
-                        # Initialize generation state
-                        chat_data["is_generating"] = False
-                        # Add default profile if missing (backward compatibility)
-                        if "profile" not in chat_data:
-                            chat_data["profile"] = "general"
-                        self.chats[chat_id] = chat_data
-                        
-                        # Add to list
-                        item = QListWidgetItem(chat_data["name"])
-                        item.setData(Qt.UserRole, chat_id)
-                        self.chat_list.addItem(item)
+                    # Validate required fields
+                    required_fields = ["id", "name", "html_content", "created"]
+                    if not all(field in chat_data for field in required_fields):
+                        logger.warning(f"Skipping invalid chat file {filename}: missing required fields")
+                        continue
+                    
+                    chat_id = chat_data["id"]
+                    # Initialize generation state
+                    chat_data["is_generating"] = False
+                    # Add default profile if missing (backward compatibility)
+                    if "profile" not in chat_data:
+                        chat_data["profile"] = "general"
+                    # Add default draft_message if missing
+                    if "draft_message" not in chat_data:
+                        chat_data["draft_message"] = ""
+                    self.chats[chat_id] = chat_data
+                    
+                    # Add to list
+                    item = QListWidgetItem(chat_data["name"])
+                    item.setData(Qt.UserRole, chat_id)
+                    self.chat_list.addItem(item)
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON in chat file {filename}: {e}")
                 except FileNotFoundError:
@@ -1751,27 +1776,36 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Clean up resources when closing the application"""
         try:
-            # Save current chat
+            # Save current chat first
             if self.current_chat_id:
                 self.save_current_chat()
             
             # Stop all active chat workers with proper cleanup
-            for chat_id, worker in list(self.chat_workers.items()):
+            workers_to_stop = list(self.chat_workers.items())
+            for chat_id, worker in workers_to_stop:
                 try:
-                    if worker.isRunning():
+                    if worker and worker.isRunning():
                         worker.stop()
-                        if not worker.wait(3000):  # Wait max 3 seconds
-                            worker.terminate()     # Force terminate
-                            worker.wait(1000)      # Wait for termination
+                        if not worker.wait(2000):  # Wait max 2 seconds
+                            logger.warning(f"Force terminating worker {chat_id}")
+                            worker.terminate()
+                            worker.wait(1000)
+                        worker.deleteLater()
                 except Exception as e:
                     logger.error(f"Error stopping worker {chat_id}: {e}")
             
+            # Clear workers dict
+            self.chat_workers.clear()
+            
             # Stop model loader if running
             try:
-                if hasattr(self, 'model_loader') and self.model_loader and self.model_loader.isRunning():
-                    if not self.model_loader.wait(3000):
-                        self.model_loader.terminate()
-                        self.model_loader.wait(1000)
+                if hasattr(self, 'model_loader') and self.model_loader:
+                    if self.model_loader.isRunning():
+                        if not self.model_loader.wait(2000):
+                            self.model_loader.terminate()
+                            self.model_loader.wait(1000)
+                        self.model_loader.deleteLater()
+                    self.model_loader = None
             except Exception as e:
                 logger.error(f"Error stopping model loader: {e}")
             
@@ -1779,14 +1813,13 @@ class MainWindow(QMainWindow):
             try:
                 if hasattr(self, 'llama_handler') and self.llama_handler:
                     self.llama_handler.cleanup()
+                    self.llama_handler = None
             except Exception as e:
                 logger.error(f"Error cleaning up model: {e}")
             
             # Clear data structures
             try:
                 self.chats.clear()
-                self.chat_workers.clear()
-                self.profiles.clear()
             except Exception as e:
                 logger.error(f"Error clearing data: {e}")
                 
