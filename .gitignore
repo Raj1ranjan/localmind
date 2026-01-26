@@ -7,9 +7,7 @@ __pycache__/
 .env
 
 # Runtime data
-logs/
-chats/
-memory/
+
 
 # Build outputs
 dist/
@@ -18,9 +16,7 @@ build/
 *.exe
 
 # Models
-models/
-*.gguf
-*.bin
+
 
 # OS
 .DS_Store
