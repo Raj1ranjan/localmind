@@ -40,7 +40,7 @@ def get_windows_safe_config():
     # Windows 11 can handle slightly higher settings than Windows 10
     if is_windows_11():
         return {
-            'n_ctx': 3072,          # Higher context for Win11
+            'n_ctx': 4096,          # Higher context for Win11
             'max_memory_kb': 1500,  # More memory for Win11
             'use_mlock': False,     # Still disable memory locking
             'n_gpu_layers': 0       # CPU-only for stability

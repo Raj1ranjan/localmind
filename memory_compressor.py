@@ -37,6 +37,7 @@ class MemoryCompressor:
         import platform
         if platform.system() == "Windows":
             self.max_memory_kb = min(max_memory_kb, 1000)  # Lower limit for Windows
+            logger.info(f"Windows detected: Using conservative memory limit of {self.max_memory_kb}KB")
         else:
             self.max_memory_kb = max_memory_kb  # Full limit for Linux/Mac
             

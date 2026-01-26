@@ -35,7 +35,7 @@ if exist fix_crashes.py (
 
 REM Launch LocalMind with error handling
 echo Launching LocalMind...
-python main.py
+python start_windows.py
 
 REM Keep window open if there's an error
 if errorlevel 1 (

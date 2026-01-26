@@ -46,7 +46,9 @@ class LlamaHandler:
                 'model_path': self.model_path,
                 'n_ctx': self.n_ctx,
                 'n_threads': self.n_threads,
-                'verbose': False
+                'verbose': False,
+                'use_mlock': False if platform.system() == "Windows" else True,
+                'n_gpu_layers': 0 if platform.system() == "Windows" else -1
             }
             
             # Windows-safe model loading with compatibility settings
@@ -66,6 +68,15 @@ class LlamaHandler:
                         'n_gpu_layers': 0,
                     })
                 
+            # Apply Windows-safe configuration
+            if platform.system() == "Windows":
+                kwargs.update({
+                    'use_mlock': False,
+                    'n_gpu_layers': 0,
+                    'n_batch': min(512, kwargs.get('n_batch', 512))
+                })
+                logger.info("Applied Windows-safe model configuration")
+            
             self.llm = Llama(**kwargs)
             return True
         except Exception as e:
