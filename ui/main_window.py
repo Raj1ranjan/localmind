@@ -970,6 +970,9 @@ class MainWindow(QMainWindow):
         user_message = self.input_field.text().strip()
         self.input_field.clear()
         
+        # Clear draft message since it's being sent
+        self.chats[target_chat_id]["draft_message"] = ""
+        
         # Update chat name with first message
         self.update_chat_name(user_message)
         
@@ -1207,7 +1210,8 @@ class MainWindow(QMainWindow):
             "html_content": "",
             "created": datetime.now().isoformat(),
             "is_generating": False,
-            "profile": "general"  # Default profile
+            "profile": "general",  # Default profile
+            "draft_message": ""  # Initialize draft message field
         }
         self.chats[chat_id] = chat_data
         self.current_chat_id = chat_id
@@ -1226,8 +1230,11 @@ class MainWindow(QMainWindow):
         return chat_id
         
     def switch_chat(self, item):
-        # Save current chat
+        # Save current chat and input field text
         if self.current_chat_id:
+            # Save input field text for current chat (with safety check)
+            if self.current_chat_id in self.chats:
+                self.chats[self.current_chat_id]["draft_message"] = self.input_field.text()
             self.save_current_chat()
         
         # Switch to selected chat
@@ -1238,28 +1245,37 @@ class MainWindow(QMainWindow):
         self.current_chat_id = chat_id
         chat_data = self.chats[chat_id]
         
-        # Rebuild display from messages with proper formatting
+        # Restore input field text for this chat
+        draft_message = chat_data.get("draft_message", "")
+        self.input_field.setText(draft_message)
+        
+        # Restore chat display from saved HTML content
         self.chat_display.clear()
         
-        # Reapply document formatting after clear
-        from PySide6.QtGui import QTextBlockFormat, QTextCursor
-        doc = self.chat_display.document()
-        cursor = self.chat_display.textCursor()
-        block_format = QTextBlockFormat()
-        block_format.setLineHeight(120, 1)  # 1 = ProportionalHeight
-        block_format.setBottomMargin(8)
-        
-        for message in chat_data.get("messages", []):
-            role = message.get("role", "")
-            content = message.get("content", "")
+        # Use saved HTML content if available, otherwise rebuild from messages
+        html_content = chat_data.get("html_content", "")
+        if html_content:
+            self.chat_display.setHtml(html_content)
+        else:
+            # Fallback: rebuild from messages with proper formatting
+            from PySide6.QtGui import QTextBlockFormat, QTextCursor
+            doc = self.chat_display.document()
+            cursor = self.chat_display.textCursor()
+            block_format = QTextBlockFormat()
+            block_format.setLineHeight(120, 1)  # 1 = ProportionalHeight
+            block_format.setBottomMargin(8)
             
-            cursor.movePosition(QTextCursor.End)
-            cursor.setBlockFormat(block_format)
-            
-            if role == "user":
-                cursor.insertHtml(f"<b>You:</b> {content}<br><br>")
-            elif role == "assistant":
-                cursor.insertHtml(f"<b>AI:</b> {content}<br><br>")
+            for message in chat_data.get("messages", []):
+                role = message.get("role", "")
+                content = message.get("content", "")
+                
+                cursor.movePosition(QTextCursor.End)
+                cursor.setBlockFormat(block_format)
+                
+                if role == "user":
+                    cursor.insertHtml(f"<b>You:</b> {content}<br><br>")
+                elif role == "assistant":
+                    cursor.insertHtml(f"<b>AI:</b> {content}<br><br>")
         
         # Update profile UI for this chat
         self.update_profile_ui()
