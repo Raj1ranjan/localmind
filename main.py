@@ -64,31 +64,21 @@ def main():
             # Windows-specific application settings
             import platform
             if platform.system() == "Windows":
-                # Windows 11 specific optimizations
+                # Windows-specific optimizations with safe attribute handling
                 try:
-                    from windows_compat import is_windows_11
-                    if is_windows_11():
-                        # Windows 11 can handle more features
-                        try:
-                            app.setAttribute(Qt.ApplicationAttribute.AA_DisableWindowContextHelpButton, True)
-                            app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
-                        except AttributeError:
-                            app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
-                            app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-                        app.setQuitOnLastWindowClosed(True)
-                    else:
-                        # Windows 10 - more conservative
-                        try:
-                            app.setAttribute(Qt.ApplicationAttribute.AA_DisableWindowContextHelpButton, True)
-                        except AttributeError:
-                            app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
-                        app.setQuitOnLastWindowClosed(True)
+                    from windows_compat import is_windows_11, safe_set_qt_attribute
+                    is_win11 = is_windows_11()
+                    
+                    # Apply Windows-specific settings safely
+                    safe_set_qt_attribute(app, 'AA_DisableWindowContextHelpButton')
+                    if is_win11:
+                        safe_set_qt_attribute(app, 'AA_UseHighDpiPixmaps')
+                    
+                    app.setQuitOnLastWindowClosed(True)
+                    
                 except ImportError:
-                    # Fallback for all Windows versions
-                    try:
-                        app.setAttribute(Qt.ApplicationAttribute.AA_DisableWindowContextHelpButton, True)
-                    except AttributeError:
-                        app.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)
+                    # Fallback without windows_compat
+                    logger.debug("Windows compatibility module not available, using basic settings")
                     app.setQuitOnLastWindowClosed(True)
         except Exception as e:
             logger.error(f"Error creating QApplication: {e}")

@@ -66,6 +66,8 @@ def setup_windows_environment():
             os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
             os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
             os.environ['QT_SCALE_FACTOR_ROUNDING_POLICY'] = 'RoundPreferFloor'
+            # Fix for Windows 11 Qt attribute issues
+            os.environ['QT_LOGGING_RULES'] = 'qt.qpa.windows.debug=false'
             logger.info("Windows 11 environment configured with enhanced DPI support")
         else:
             # Windows 10 and older - disable scaling issues
@@ -103,3 +105,27 @@ def get_safe_thread_count():
         return max(1, cpu_count // 4)
     else:
         return max(1, cpu_count // 2)
+
+def safe_set_qt_attribute(app, attr_name, value=True):
+    """Safely set Qt application attributes with Windows 11 compatibility"""
+    if not is_windows():
+        return True
+    
+    try:
+        # Import Qt here to avoid circular imports
+        from PySide6.QtCore import Qt
+        
+        # Try new-style attribute first (PySide6 6.5+)
+        if hasattr(Qt.ApplicationAttribute, attr_name):
+            app.setAttribute(getattr(Qt.ApplicationAttribute, attr_name), value)
+            return True
+        # Fallback to old-style (older PySide6)
+        elif hasattr(Qt, attr_name):
+            app.setAttribute(getattr(Qt, attr_name), value)
+            return True
+        else:
+            logger.debug(f"Qt attribute {attr_name} not available")
+            return False
+    except (AttributeError, RuntimeError) as e:
+        logger.debug(f"Could not set Qt attribute {attr_name}: {e}")
+        return False
