@@ -103,6 +103,57 @@ class ModelDownloader(QThread):
             self.download_failed.emit(error_msg)
 
 
+class DocumentCompressionWorker(QThread):
+    """Worker thread for document compression to prevent UI freezing"""
+    progress_updated = Signal(str, int)  # message, percentage
+    compression_finished = Signal(str)  # doc_id
+    compression_failed = Signal(str)  # error_message
+    
+    def __init__(self, file_path, memory_manager):
+        super().__init__()
+        self.file_path = file_path
+        self.memory_manager = memory_manager
+        self._cancel_requested = False
+    
+    def cancel(self):
+        """Request cancellation"""
+        self._cancel_requested = True
+    
+    def run(self):
+        """Run compression in background thread"""
+        try:
+            if self._cancel_requested:
+                return
+            
+            self.progress_updated.emit("Extracting text...", 30)
+            
+            if self._cancel_requested:
+                return
+            
+            self.progress_updated.emit("Compressing with LLM...", 60)
+            
+            # Perform compression
+            doc_id = self.memory_manager.learn_document(
+                self.file_path,
+                progress_callback=self._progress_callback
+            )
+            
+            if self._cancel_requested:
+                return
+            
+            self.progress_updated.emit("Finalizing...", 95)
+            self.compression_finished.emit(doc_id)
+            
+        except Exception as e:
+            if not self._cancel_requested:
+                self.compression_failed.emit(str(e))
+    
+    def _progress_callback(self, message, value):
+        """Progress callback for memory manager"""
+        if not self._cancel_requested:
+            self.progress_updated.emit(message, value)
+
+
 class DownloadModelDialog(QDialog):
     """Dialog for downloading models from HuggingFace"""
     
@@ -629,6 +680,26 @@ class MainWindow(QMainWindow):
         self.download_btn.clicked.connect(self.start_model_download)
         self.download_btn.setStyleSheet(self.IDLE_STYLE)
         
+        # Info icon with tooltip
+        self.info_btn = QPushButton("i")
+        self.info_btn.setFixedSize(20, 20)
+        self.info_btn.setToolTip("Downloads the quantized Meta Llama 3.2 3B Instruct model.")
+        self.info_btn.clicked.connect(self.show_model_info)
+        self.info_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #444;
+                border: 1px solid #666;
+                border-radius: 10px;
+                font-size: 10px;
+                font-weight: bold;
+                color: #ccc;
+            }
+            QPushButton:hover {
+                background-color: #555;
+                border-color: #777;
+            }
+        """)
+        
         self.cancel_btn = QPushButton("✖")
         self.cancel_btn.setFixedWidth(32)
         self.cancel_btn.setVisible(False)
@@ -647,6 +718,7 @@ class MainWindow(QMainWindow):
         """)
         
         self.download_row.addWidget(self.download_btn)
+        self.download_row.addWidget(self.info_btn)
         self.download_row.addWidget(self.cancel_btn)
         layout.addLayout(self.download_row)
         
@@ -2119,6 +2191,17 @@ class MainWindow(QMainWindow):
         self.download_btn.setStyleSheet(self.IDLE_STYLE)
         self.cancel_btn.setVisible(False)
     
+    def show_model_info(self):
+        """Show model information dialog"""
+        QMessageBox.information(
+            self,
+            "Model Information",
+            "Downloads the quantized Meta Llama 3.2 3B Instruct model.\n\n"
+            "• Size: ~2.0 GB\n"
+            "• Quantization: Q4_K_M (4-bit)\n"
+            "• Source: hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF"
+        )
+    
     def update_download_progress(self, percent, status=None):
         """Update download progress with button fill animation"""
         p = percent / 100.0
@@ -2173,45 +2256,58 @@ class MainWindow(QMainWindow):
                     file_path = file_paths[0]
                     
                     # Show progress bar
-                    progress = QProgressDialog("Processing document...", None, 0, 100, self)
-                    progress.setWindowTitle("LocalMind")
-                    progress.setWindowModality(Qt.WindowModal)
-                    progress.setCancelButton(None)
-                    progress.setMinimumDuration(0)
-                    progress.setValue(10)
-                    progress.show()
-                    QApplication.processEvents()
+                    self.compression_progress = QProgressDialog("Processing document...", "Cancel", 0, 100, self)
+                    self.compression_progress.setWindowTitle("LocalMind")
+                    self.compression_progress.setWindowModality(Qt.WindowModal)
+                    self.compression_progress.setMinimumDuration(0)
+                    self.compression_progress.setValue(10)
+                    self.compression_progress.canceled.connect(self.cancel_compression)
+                    self.compression_progress.show()
                     
-                    try:
-                        # Update progress during processing
-                        progress.setLabelText("Extracting text...")
-                        progress.setValue(30)
-                        QApplication.processEvents()
-                        
-                        # Learn document with progress callback
-                        doc_id = self.memory_manager.learn_document(
-                            file_path,
-                            progress_callback=lambda msg, val: self._update_progress(progress, msg, val)
-                        )
-                        
-                        progress.setValue(100)
-                        progress.close()
-                        
-                        if doc_id:
-                            self.refresh_document_list()
-                            
-                            QMessageBox.information(self, "Success", 
-                                "Document learned and compressed into memory!")
-                        else:
-                            QMessageBox.warning(self, "Error", 
-                                "Failed to learn document. Check logs.")
-                    except Exception as e:
-                        progress.close()
-                        logger.error(f"Error learning document: {e}")
-                        QMessageBox.critical(self, "Error", f"Failed to learn document: {str(e)}")
+                    # Start compression in thread
+                    self.compression_worker = DocumentCompressionWorker(
+                        file_path, self.memory_manager
+                    )
+                    self.compression_worker.progress_updated.connect(self.update_compression_progress)
+                    self.compression_worker.compression_finished.connect(self.on_compression_finished)
+                    self.compression_worker.compression_failed.connect(self.on_compression_failed)
+                    self.compression_worker.start()
+                    
         except Exception as e:
             logger.error(f"Error in import_document: {e}")
             QMessageBox.critical(self, "Error", f"Failed to open file dialog: {str(e)}")
+    
+    def cancel_compression(self):
+        """Cancel document compression"""
+        if hasattr(self, 'compression_worker') and self.compression_worker:
+            self.compression_worker.cancel()
+    
+    def update_compression_progress(self, message, value):
+        """Update compression progress"""
+        if hasattr(self, 'compression_progress') and self.compression_progress:
+            self.compression_progress.setLabelText(message)
+            self.compression_progress.setValue(value)
+    
+    def on_compression_finished(self, doc_id):
+        """Handle successful compression"""
+        if hasattr(self, 'compression_progress'):
+            self.compression_progress.close()
+        
+        if doc_id:
+            self.refresh_document_list()
+            QMessageBox.information(self, "Success", 
+                "Document learned and compressed into memory!")
+        else:
+            QMessageBox.warning(self, "Error", 
+                "Failed to learn document. Check logs.")
+    
+    def on_compression_failed(self, error_msg):
+        """Handle compression failure"""
+        if hasattr(self, 'compression_progress'):
+            self.compression_progress.close()
+        
+        logger.error(f"Compression failed: {error_msg}")
+        QMessageBox.critical(self, "Error", f"Failed to learn document: {error_msg}")
     
     def show_compression_stats(self, stats, doc_name):
         """Show compression statistics after successful document import"""
