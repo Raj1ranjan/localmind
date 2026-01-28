@@ -2,8 +2,8 @@ from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout,
                                QWidget, QTextEdit, QLineEdit, QPushButton, 
                                QFileDialog, QLabel, QListWidget, 
                                QListWidgetItem, QMessageBox, QScrollArea, QMenu, QSlider, QSpinBox, QComboBox,
-                               QCheckBox, QProgressDialog, QApplication)
-from PySide6.QtCore import Qt, QThread, Signal, QPoint
+                               QCheckBox, QProgressDialog, QApplication, QDialog, QProgressBar)
+from PySide6.QtCore import Qt, QThread, Signal, QPoint, QTimer
 from PySide6.QtGui import QFont, QKeySequence, QShortcut, QAction
 from llm.llama_handler import LlamaHandler, LlamaWorker, ModelLoader
 
@@ -13,11 +13,409 @@ from memory_manager import MemoryManager
 import json
 import os
 import logging
+import requests
 from typing import Tuple
 from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+class ModelDownloader(QThread):
+    """Cancellable model downloader using streaming API"""
+    progress_updated = Signal(int, str)  # percentage, status
+    download_finished = Signal(str)  # model_path
+    download_failed = Signal(str)  # error_message
+    
+    def __init__(self, repo_id, filename, local_dir):
+        super().__init__()
+        self.repo_id = repo_id
+        self.filename = filename
+        self.local_dir = local_dir
+        self._cancel_requested = False
+        
+    def request_cancel(self):
+        """Cooperative cancel - thread will check this flag"""
+        self._cancel_requested = True
+        
+    def run(self):
+        try:
+            from huggingface_hub import hf_hub_url
+            import requests
+            
+            # Create models directory
+            models_dir = Path(self.local_dir)
+            models_dir.mkdir(exist_ok=True)
+            
+            self.progress_updated.emit(0, "Starting download...")
+            
+            # Get download URL
+            url = hf_hub_url(self.repo_id, self.filename)
+            output_path = models_dir / self.filename
+            
+            self.progress_updated.emit(5, "Connecting...")
+            
+            # Start streaming download
+            response = requests.get(url, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get("content-length", 0))
+            downloaded = 0
+            
+            if total_size > 0:
+                size_mb = total_size / (1024 * 1024)
+                self.progress_updated.emit(10, f"Downloading {size_mb:.1f}MB...")
+            else:
+                self.progress_updated.emit(10, "Downloading...")
+            
+            # Stream download with cancel checks
+            with open(output_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):  # 1MB chunks
+                    # Check for cancel request
+                    if self._cancel_requested:
+                        f.close()
+                        if output_path.exists():
+                            output_path.unlink()  # Delete partial file
+                        return  # Exit cleanly
+                    
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        if total_size > 0:
+                            percent = min(95, int(downloaded / total_size * 90) + 10)
+                            self.progress_updated.emit(percent, f"Downloaded {downloaded // (1024*1024)}MB...")
+            
+            # Final check before completion
+            if self._cancel_requested:
+                if output_path.exists():
+                    output_path.unlink()
+                return
+            
+            self.progress_updated.emit(100, "Download complete!")
+            self.download_finished.emit(str(output_path))
+            
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Network error: {str(e)}"
+            self.download_failed.emit(error_msg)
+        except Exception as e:
+            error_msg = f"Download failed: {str(e)}"
+            self.download_failed.emit(error_msg)
+
+
+class DownloadModelDialog(QDialog):
+    """Dialog for downloading models from HuggingFace"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.downloader = None
+        self.downloaded_model_path = None
+        self.setup_ui()
+        
+    def setup_ui(self):
+        self.setWindowTitle("Get Local Model")
+        self.setFixedSize(450, 280)
+        self.setModal(True)
+        
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Privacy info
+        info = QLabel(
+            "Models are downloaded once and run entirely on your device.\n"
+            "No prompts, chats, or documents ever leave your system."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #ffffff; font-size: 13px; background-color: rgba(76, 175, 80, 0.1); padding: 10px; border-radius: 4px;")
+        layout.addWidget(info)
+        
+        # Model selection (single option)
+        model_label = QLabel("Model:")
+        model_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold;")
+        layout.addWidget(model_label)
+        
+        self.model_combo = QComboBox()
+        self.model_combo.setEnabled(False)  # Disable since only one option
+        self.model_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #3a3a3a;
+                color: #ffffff;
+                border: 1px solid #555555;
+                padding: 10px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+        """)
+        
+        # Add single curated model
+        model_data = ("hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF", "llama-3.2-3b-instruct-q4_k_m.gguf")
+        self.model_combo.addItem(
+            "Llama-3.2-3B-Instruct (Q4_K_M)  •  ~2.0 GB", 
+            model_data
+        )
+        print(f"DEBUG: Added model data: {model_data}")  # Debug
+        
+        layout.addWidget(self.model_combo)
+        
+        # Progress section (initially hidden)
+        self.progress_widget = QWidget()
+        progress_layout = QVBoxLayout(self.progress_widget)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.progress_label = QLabel("Ready to download")
+        self.progress_label.setStyleSheet("color: #ffffff; font-size: 12px;")
+        progress_layout.addWidget(self.progress_label)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #555555;
+                border-radius: 4px;
+                text-align: center;
+                background-color: #2a2a2a;
+                color: #ffffff;
+                height: 20px;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                border-radius: 3px;
+            }
+        """)
+        progress_layout.addWidget(self.progress_bar)
+        
+        layout.addWidget(self.progress_widget)
+        
+        layout.addStretch()
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #555555;
+                color: #ffffff;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #666666;
+            }
+        """)
+        self.cancel_button.clicked.connect(self.cancel_download)
+        button_layout.addWidget(self.cancel_button)
+        
+        self.download_button = QPushButton("Download & Load")
+        self.download_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: #ffffff;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #333333;
+                color: #666666;
+            }
+        """)
+        self.download_button.clicked.connect(self.start_download)
+        print("DEBUG: Connected download button to start_download")  # Debug
+        button_layout.addWidget(self.download_button)
+        
+        layout.addLayout(button_layout)
+        
+        # Apply dark theme
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+        """)
+    
+    def start_download(self):
+        print("DEBUG: start_download called")
+        
+        if self.downloader and self.downloader.isRunning():
+            print("DEBUG: Downloader already running")
+            return
+            
+        # Get selected model
+        current_data = self.model_combo.currentData()
+        print(f"DEBUG: current_data = {current_data}")
+        
+        if not current_data:
+            print("DEBUG: No current data, returning")
+            self.progress_label.setText("No model selected")
+            return
+            
+        repo_id, filename = current_data
+        print(f"DEBUG: repo_id={repo_id}, filename={filename}")
+        
+        # Validate model selection
+        if not repo_id or not filename:
+            print("DEBUG: Invalid repo_id or filename")
+            self.progress_label.setText("Invalid model selection")
+            return
+        
+        print("DEBUG: Starting UI setup for download")
+        
+        # Show downloading status in main window immediately
+        if self.parent():
+            self.parent().model_status.setText("Downloading model…")
+            self.parent().model_status.setStyleSheet("color: orange;")
+        
+        # Setup UI for downloading - SHOW IMMEDIATE FEEDBACK
+        self.download_button.setEnabled(False)
+        self.download_button.setText("Downloading...")
+        self.cancel_button.setText("Cancel")
+        self.cancel_button.setEnabled(True)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        self.progress_bar.setVisible(True)
+        self.progress_label.setText("Downloading model (~2.0 GB). This may take a while.")
+        self.progress_label.setVisible(True)
+        
+        # Make dialog modal during download
+        self.setModal(True)
+        
+        # Force UI update
+        self.progress_bar.repaint()
+        self.progress_label.repaint()
+        self.download_button.repaint()
+        
+        # Prevent dialog from being closed during download
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowCloseButtonHint)
+        
+        # Create models directory
+        models_dir = Path("models")
+        models_dir.mkdir(exist_ok=True)
+        print(f"DEBUG: Created models directory: {models_dir}")
+        
+        # Start download
+        print("DEBUG: Creating ModelDownloader")
+        self.downloader = ModelDownloader(repo_id, filename, str(models_dir))
+        
+        # Store strong reference in parent window
+        if hasattr(self.parent(), 'download_worker'):
+            self.parent().download_worker = self.downloader
+        
+        print("DEBUG: Connecting signals")
+        self.downloader.progress_updated.connect(self.update_progress)
+        self.downloader.download_finished.connect(self.download_completed)
+        self.downloader.download_failed.connect(self.download_error)
+        self.downloader.finished.connect(self.downloader.deleteLater)  # Clean shutdown
+        print("DEBUG: Signals connected")
+        
+        print("DEBUG: Starting downloader thread")
+        self.downloader.start()
+        print("DEBUG: Downloader thread started")
+    
+    def simulate_progress(self):
+        """Simulate progress updates during download"""
+        print("DEBUG: simulate_progress called")
+        if self.downloader and self.downloader.isRunning():
+            if self.current_progress < 90:
+                self.current_progress += 10
+                self.progress_bar.setValue(self.current_progress)
+                self.progress_label.setText(f"Downloading model... {self.current_progress}%")
+                print(f"DEBUG: Updated progress to {self.current_progress}%")
+        else:
+            print("DEBUG: Downloader not running, stopping timer")
+            if hasattr(self, 'progress_timer'):
+                self.progress_timer.stop()
+    
+    def update_progress(self, percentage, status):
+        print(f"DEBUG: update_progress called: {percentage}%, {status}")
+        self.progress_bar.setValue(percentage)
+        self.progress_label.setText(status)
+    
+    def download_completed(self, model_path):
+        print(f"DEBUG: download_completed called with path: {model_path}")
+        
+        self.downloaded_model_path = model_path
+        self.progress_bar.setValue(100)
+        self.progress_label.setText("Model ready")
+        self.download_button.setText("Close")
+        self.download_button.setEnabled(True)
+        self.download_button.clicked.disconnect()
+        self.download_button.clicked.connect(self.accept)  # Safe to accept now
+        
+        # Force UI update
+        self.progress_bar.repaint()
+        self.progress_label.repaint()
+        self.download_button.repaint()
+        
+        # Auto-load the model in parent window
+        if self.parent():
+            parent = self.parent()
+            parent.model_path = model_path
+            parent.load_button.setEnabled(True)
+            parent.save_settings()
+            parent.load_model()
+            model_name = os.path.basename(model_path).replace('.gguf', '')
+            parent.model_status.setText(f"{model_name}\nStatus: Loaded")
+            parent.model_status.setStyleSheet("")  # Reset color
+            
+            # Clean up worker reference
+            parent.download_worker = None
+    
+    def download_error(self, error_message):
+        print(f"DEBUG: download_error called: {error_message}")
+        
+        self.progress_bar.setValue(0)
+        self.progress_label.setText(f"Download failed: {error_message}")
+        self.download_button.setText("Retry")
+        self.download_button.setEnabled(True)
+        
+        # Re-enable close button
+        self.setWindowFlags(self.windowFlags() | Qt.WindowCloseButtonHint)
+        
+        # Force UI update
+        self.progress_bar.repaint()
+        self.progress_label.repaint()
+        self.download_button.repaint()
+    
+    def cancel_download(self):
+        print("DEBUG: cancel_download called")
+        if self.downloader and self.downloader.isRunning():
+            print("DEBUG: Cancelling running downloader")
+            self.downloader.cancel()
+            self.progress_label.setText("Cancelling download...")
+        else:
+            print("DEBUG: No running downloader to cancel")
+        self.reject()
+    
+    def accept(self):
+        print("DEBUG: Dialog.accept() called")
+        super().accept()
+    
+    def reject(self):
+        print("DEBUG: Dialog.reject() called")
+        super().reject()
+    
+    def closeEvent(self, event):
+        """Handle dialog close event"""
+        print("DEBUG: Dialog closeEvent called")
+        if self.downloader and self.downloader.isRunning():
+            QMessageBox.information(
+                self,
+                "Download in progress",
+                "Please cancel the download before closing."
+            )
+            event.ignore()
+            return
+        event.accept()
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -32,6 +430,10 @@ class MainWindow(QMainWindow):
         self.settings_file = "settings.json"
         self.model_path = None
         self.drag_position = QPoint()
+        
+        # Strong references for download worker
+        self.download_worker = None
+        
         # Default parameters
         self.temperature = 0.70
         self.max_tokens = 512
@@ -72,6 +474,43 @@ class MainWindow(QMainWindow):
         
         # Memory management
         self.memory_manager = MemoryManager()
+        
+        # Download button styles
+        self.IDLE_STYLE = """
+            QPushButton {
+                background-color: #1e1e1e;
+                color: #9be9a8;
+                border: 1px solid #2f855a;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """
+        
+        self.DOWNLOADING_STYLE = """
+            QPushButton {{
+                color: black;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 8px;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #38a169,
+                    stop:{progress} #38a169,
+                    stop:{progress} #ecc94b,
+                    stop:1 #ecc94b
+                );
+            }}
+        """
+        
+        self.DONE_STYLE = """
+            QPushButton {
+                background-color: #38a169;
+                color: black;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """
         
         os.makedirs(self.chats_dir, exist_ok=True)
         self.load_settings()
@@ -181,6 +620,35 @@ class MainWindow(QMainWindow):
         self.load_button.clicked.connect(self.load_model)
         self.load_button.setEnabled(False)
         layout.addWidget(self.load_button)
+        
+        # Download model button with cancel support
+        self.download_row = QHBoxLayout()
+        self.download_row.setSpacing(5)
+        
+        self.download_btn = QPushButton("Download Model")
+        self.download_btn.clicked.connect(self.start_model_download)
+        self.download_btn.setStyleSheet(self.IDLE_STYLE)
+        
+        self.cancel_btn = QPushButton("✖")
+        self.cancel_btn.setFixedWidth(32)
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.clicked.connect(self.cancel_download)
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        
+        self.download_row.addWidget(self.download_btn)
+        self.download_row.addWidget(self.cancel_btn)
+        layout.addLayout(self.download_row)
         
         layout.addSpacing(20)
         
@@ -629,6 +1097,18 @@ class MainWindow(QMainWindow):
             
             #export_button:hover {
                 background-color: rgba(91, 184, 133, 0.1);
+            }
+            
+            #download_model_button {
+                background-color: transparent;
+                border: 1px solid rgba(100, 149, 237, 0.3);
+                color: #6495ed;
+                font-size: 11px;
+                padding: 6px 12px;
+            }
+            
+            #download_model_button:hover {
+                background-color: rgba(100, 149, 237, 0.1);
             }
             
             #param_label {
@@ -1607,6 +2087,73 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Failed to export chat:\n{str(e)}")
     
+    def start_model_download(self):
+        """Start model download with cancel support"""
+        self.download_btn.setEnabled(False)
+        self.download_btn.setText("Downloading model…")
+        self.cancel_btn.setVisible(True)
+        self.update_download_progress(0)
+        
+        # Create models directory
+        models_dir = Path("models")
+        models_dir.mkdir(exist_ok=True)
+        
+        self.downloader = ModelDownloader(
+            repo_id="hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF",
+            filename="llama-3.2-3b-instruct-q4_k_m.gguf",
+            local_dir=str(models_dir)
+        )
+        
+        self.downloader.progress_updated.connect(self.update_download_progress)
+        self.downloader.download_finished.connect(self.download_finished)
+        self.downloader.download_failed.connect(self.download_failed)
+        self.downloader.start()
+    
+    def cancel_download(self):
+        """Cancel download cooperatively"""
+        if self.downloader:
+            self.downloader.request_cancel()
+        
+        self.download_btn.setText("Download cancelled")
+        self.download_btn.setEnabled(True)
+        self.download_btn.setStyleSheet(self.IDLE_STYLE)
+        self.cancel_btn.setVisible(False)
+    
+    def update_download_progress(self, percent, status=None):
+        """Update download progress with button fill animation"""
+        p = percent / 100.0
+        style = self.DOWNLOADING_STYLE.format(progress=p)
+        self.download_btn.setStyleSheet(style)
+    
+    def download_finished(self, model_path):
+        """Handle successful download completion"""
+        self.download_btn.setText("Model ready")
+        self.download_btn.setStyleSheet(self.DONE_STYLE)
+        self.cancel_btn.setVisible(False)
+        
+        # Auto-enable and set model path
+        self.model_path = model_path
+        self.load_button.setEnabled(True)
+        self.save_settings()
+        
+        # Update model status
+        model_name = os.path.basename(model_path).replace('.gguf', '')
+        self.model_status.setText(f"Selected: {model_name}")
+    
+    def download_failed(self, error_message):
+        """Handle download failure"""
+        self.download_btn.setText("Download failed")
+        self.download_btn.setEnabled(True)
+        self.download_btn.setStyleSheet(self.IDLE_STYLE)
+        self.cancel_btn.setVisible(False)
+        
+        # Show error in model status
+        self.model_status.setText(f"Download failed: {error_message}")
+
+    def show_download_model_dialog(self):
+        """Legacy method - now handled by sidebar button"""
+        pass
+    
     # Document Methods
     def import_document(self):
         """Import and learn from a new document"""
@@ -1775,6 +2322,16 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         """Clean up resources when closing the application"""
+        # Check for active download first
+        if self.download_worker and self.download_worker.isRunning():
+            QMessageBox.warning(
+                self,
+                "Download in progress",
+                "A model is still downloading.\nPlease cancel it first."
+            )
+            event.ignore()
+            return
+        
         try:
             # Save current chat first
             if self.current_chat_id:

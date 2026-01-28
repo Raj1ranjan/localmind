@@ -7,7 +7,10 @@ __pycache__/
 .env
 
 # Runtime data
-
+chats/*.json
+logs/*.log
+memory/compressed_memory.json
+settings.json
 
 # Build outputs
 dist/
@@ -16,7 +19,16 @@ build/
 *.exe
 
 # Models
+models/*.gguf
+models/*.bin
 
+# Development
+.kiro/
+EVALUATION_*
+JUDGE_*
+HACKATHON_*
+fix_*.py
 
 # OS
 .DS_Store
+Thumbs.db

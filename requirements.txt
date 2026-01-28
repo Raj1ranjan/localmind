@@ -1,6 +1,8 @@
 # Core dependencies (required)
 PySide6>=6.5.0
 llama-cpp-python>=0.2.0
+huggingface-hub>=0.20.0
+requests>=2.28.0
 
 # Document reading (required for importing documents)
 PyPDF2>=3.0.0
